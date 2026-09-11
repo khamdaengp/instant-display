@@ -9,6 +9,7 @@ constexpr UINT ID_FORMAT_BASE = 2000;
 constexpr UINT ID_TOGGLE_ASPECT = 3001;
 constexpr UINT ID_TOGGLE_VSYNC = 3002;
 constexpr UINT ID_TOGGLE_FULLSCREEN = 3003;
+constexpr UINT ID_ABOUT = 3004;
 const wchar_t* kClassName = L"InstantDisplayWnd";
 }
 
@@ -70,7 +71,11 @@ void App::CreateMainWindow(HINSTANCE hInstance, int nCmdShow) {
     AppendMenu(viewMenu, MF_STRING, ID_TOGGLE_FULLSCREEN, L"Fullscreen\tF11");
     AppendMenu(m_menuBar, MF_POPUP, (UINT_PTR)viewMenu, L"View");
 
-    m_hwnd = CreateWindowEx(0, kClassName, L"InstantDisplay", WS_OVERLAPPEDWINDOW,
+    HMENU helpMenu = CreatePopupMenu();
+    AppendMenu(helpMenu, MF_STRING, ID_ABOUT, L"About InstantDisplay v1.1.0");
+    AppendMenu(m_menuBar, MF_POPUP, (UINT_PTR)helpMenu, L"Help");
+
+    m_hwnd = CreateWindowEx(0, kClassName, L"InstantDisplay v1.1.0", WS_OVERLAPPEDWINDOW,
                              CW_USEDEFAULT, CW_USEDEFAULT, 1280, 720,
                              nullptr, m_menuBar, hInstance, this);
     SetWindowLongPtr(m_hwnd, GWLP_USERDATA, (LONG_PTR)this);
@@ -153,15 +158,22 @@ void App::SelectFormat(size_t index) {
     if (index >= m_formats.size()) return;
     if (m_isScreenCapture) {
         m_activeFormat = m_formats[index];
+        std::wstring title = L"InstantDisplay v1.1.0 - " + m_formats[index].Describe();
+        SetWindowText(m_hwnd, title.c_str());
         return;
     }
     HRESULT hr = m_capture.StartStream(m_formats[index]);
     if (FAILED(hr)) {
-        MessageBox(m_hwnd, L"Failed to start capture with selected format.", L"Error", MB_ICONERROR);
+        std::wstringstream ss;
+        ss << L"Failed to start capture with selected format (0x" << std::hex << (uint32_t)hr << L").";
+        MessageBox(m_hwnd, ss.str().c_str(), L"Error", MB_ICONERROR);
         return;
     }
     m_activeFormat = m_formats[index];
     m_deviceOpen = true;
+
+    std::wstring title = L"InstantDisplay v1.1.0 - " + m_formats[index].Describe();
+    SetWindowText(m_hwnd, title.c_str());
 }
 
 void App::ToggleFullscreen() {
@@ -246,6 +258,13 @@ LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 m_renderer.kVsync = !m_renderer.kVsync;
             } else if (id == ID_TOGGLE_FULLSCREEN) {
                 ToggleFullscreen();
+            } else if (id == ID_ABOUT) {
+                MessageBox(hwnd,
+                    L"InstantDisplay v1.1.0\n\n"
+                    L"Ultra-Low Latency Video Capture & Display\n"
+                    L"Direct3D 11 & Media Foundation\n\n"
+                    L"GitHub: https://github.com/khamdaengp/instant-display",
+                    L"About InstantDisplay v1.1.0", MB_ICONINFORMATION);
             }
             return 0;
         }

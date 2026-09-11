@@ -35,14 +35,14 @@ std::wstring FormatOption::Describe() const {
 CaptureEngine::CaptureEngine() {}
 CaptureEngine::~CaptureEngine() { Stop(); }
 
-HRESULT CaptureEngine::Open(const std::wstring& symbolicLink, std::vector<FormatOption>* outFormats) {
-    HRESULT hr = S_OK;
+HRESULT CaptureEngine::CreateSource(ComPtr<IMFMediaSource>& outSource) {
+    if (m_symbolicLink.empty()) return E_FAIL;
 
     ComPtr<IMFAttributes> devAttrs;
-    hr = MFCreateAttributes(&devAttrs, 2);
+    HRESULT hr = MFCreateAttributes(&devAttrs, 2);
     if (FAILED(hr)) return hr;
     devAttrs->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID);
-    devAttrs->SetString(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK, symbolicLink.c_str());
+    devAttrs->SetString(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK, m_symbolicLink.c_str());
 
     IMFActivate** activators = nullptr;
     UINT32 count = 0;
@@ -55,7 +55,7 @@ HRESULT CaptureEngine::Open(const std::wstring& symbolicLink, std::vector<Format
             WCHAR* link = nullptr; UINT32 len = 0;
             if (SUCCEEDED(activators[i]->GetAllocatedString(
                     MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK, &link, &len))) {
-                if (symbolicLink == link) {
+                if (m_symbolicLink == link) {
                     activators[i]->ActivateObject(IID_PPV_ARGS(&src));
                 }
                 CoTaskMemFree(link);
@@ -65,17 +65,24 @@ HRESULT CaptureEngine::Open(const std::wstring& symbolicLink, std::vector<Format
     }
     CoTaskMemFree(activators);
     if (!src) return E_FAIL;
-    m_source.Attach(src);
+    outSource.Attach(src);
+    return S_OK;
+}
+
+HRESULT CaptureEngine::Open(const std::wstring& symbolicLink, std::vector<FormatOption>* outFormats) {
+    m_symbolicLink = symbolicLink;
+
+    HRESULT hr = CreateSource(m_source);
+    if (FAILED(hr)) return hr;
 
     // Reader attributes: async callback mode + explicitly refuse converter
-    // MFTs so we only ever see the device's native output formats.
+    // MFTs so we only ever see the device's native output formats during enum.
     ComPtr<IMFAttributes> readerAttrs;
-    hr = MFCreateAttributes(&readerAttrs, 3);
+    hr = MFCreateAttributes(&readerAttrs, 4);
     if (FAILED(hr)) return hr;
     readerAttrs->SetUnknown(MF_SOURCE_READER_ASYNC_CALLBACK, static_cast<IMFSourceReaderCallback*>(this));
     readerAttrs->SetUINT32(MF_READWRITE_DISABLE_CONVERTERS, TRUE);
-    // Disallow DXVA/hardware transforms we don't control the buffering of;
-    // we do our own GPU upload+convert in the renderer.
+    readerAttrs->SetUINT32(MF_SOURCE_READER_DISCONNECT_MEDIASOURCE_ON_SHUTDOWN, TRUE);
     readerAttrs->SetUINT32(MF_SOURCE_READER_DISABLE_DXVA, FALSE);
 
     hr = MFCreateSourceReaderFromMediaSource(m_source.Get(), readerAttrs.Get(), &m_reader);
@@ -115,7 +122,6 @@ HRESULT CaptureEngine::Open(const std::wstring& symbolicLink, std::vector<Format
 }
 
 HRESULT CaptureEngine::StartStream(const FormatOption& fmt) {
-    if (!m_source) return E_FAIL;
     m_streaming = false;
 
     // 1. Flush and release any active reader so that no pending async reads interfere
@@ -124,13 +130,22 @@ HRESULT CaptureEngine::StartStream(const FormatOption& fmt) {
         m_reader.Reset();
     }
 
-    // 2. Re-create reader with appropriate attributes for the requested format
+    // 2. Shut down previous source cleanly and re-create a clean media source
+    if (m_source) {
+        m_source->Shutdown();
+        m_source.Reset();
+    }
+    HRESULT hr = CreateSource(m_source);
+    if (FAILED(hr)) return hr;
+
+    // 3. Re-create reader with appropriate attributes for the requested format
     ComPtr<IMFAttributes> readerAttrs;
-    HRESULT hr = MFCreateAttributes(&readerAttrs, 4);
+    hr = MFCreateAttributes(&readerAttrs, 5);
     if (FAILED(hr)) return hr;
 
     readerAttrs->SetUnknown(MF_SOURCE_READER_ASYNC_CALLBACK, static_cast<IMFSourceReaderCallback*>(this));
     readerAttrs->SetUINT32(MF_SOURCE_READER_DISABLE_DXVA, FALSE);
+    readerAttrs->SetUINT32(MF_SOURCE_READER_DISCONNECT_MEDIASOURCE_ON_SHUTDOWN, TRUE);
 
     if (fmt.format == PixelFormat::MJPEG) {
         // Enable video processing and converters so Media Foundation can automatically
@@ -145,14 +160,14 @@ HRESULT CaptureEngine::StartStream(const FormatOption& fmt) {
     hr = MFCreateSourceReaderFromMediaSource(m_source.Get(), readerAttrs.Get(), &m_reader);
     if (FAILED(hr)) return hr;
 
-    // 3. Set the capture media type
+    // 4. Set the capture media type
     if (fmt.format == PixelFormat::MJPEG) {
         // Set native type first so hardware camera/capture card runs at selected resolution & fps
         ComPtr<IMFMediaType> nativeType;
         hr = m_reader->GetNativeMediaType(fmt.streamIndex, fmt.mediaTypeIndex, &nativeType);
-        if (SUCCEEDED(hr)) {
-            m_reader->SetCurrentMediaType(fmt.streamIndex, nullptr, nativeType.Get());
-        }
+        if (FAILED(hr)) return hr;
+        hr = m_reader->SetCurrentMediaType(fmt.streamIndex, nullptr, nativeType.Get());
+        if (FAILED(hr)) return hr;
 
         // Request decoded RGB32 output from the reader
         ComPtr<IMFMediaType> decodeType;

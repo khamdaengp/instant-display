@@ -102,7 +102,9 @@ public:
 private:
     void RequestNextFrame();
     bool DecodeMJPEGWithWIC(const uint8_t* jpegData, DWORD jpegSize, std::vector<uint8_t>& outRgb);
+    HRESULT CreateSource(ComPtr<IMFMediaSource>& outSource);
 
+    std::wstring m_symbolicLink;
     std::atomic<ULONG> m_refCount{1};
     ComPtr<IMFMediaSource> m_source;
     ComPtr<IMFSourceReader> m_reader;
