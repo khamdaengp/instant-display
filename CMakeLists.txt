@@ -21,6 +21,15 @@ add_executable(InstantDisplay WIN32
 
 target_include_directories(InstantDisplay PRIVATE src)
 
+set_target_properties(InstantDisplay PROPERTIES OUTPUT_NAME "InstantDisplay 1.1.0")
+
+add_custom_command(TARGET InstantDisplay POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:InstantDisplay>"
+        "$<TARGET_FILE_DIR:InstantDisplay>/InstantDisplay.exe"
+    COMMENT "Copying binary to InstantDisplay.exe"
+)
+
 # Core Windows media / graphics libs. All ship with the Windows SDK -
 # no external dependencies to fetch or vendor.
 target_link_libraries(InstantDisplay PRIVATE
