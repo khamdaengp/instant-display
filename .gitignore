@@ -1,4 +1,4 @@
-﻿# Build outputs
+# Build outputs
 build/
 bin/
 out/
@@ -37,6 +37,11 @@ _deps/
 *.ilk
 *.idb
 *.tlog
+
+# Allow prebuilt release binaries in Release/ folder
+!Release/
+!Release/**
+!Release/*.exe
 
 # OS generated files
 .DS_Store
