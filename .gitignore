@@ -1,0 +1,44 @@
+﻿# Build outputs
+build/
+bin/
+out/
+
+# Visual Studio / MSBuild
+.vs/
+*.sln
+*.vcxproj*
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Testing/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps/
+
+# Compiled binaries & objects
+*.obj
+*.o
+*.lib
+*.a
+*.dll
+*.so
+*.dylib
+*.exe
+*.pdb
+*.ilk
+*.idb
+*.tlog
+
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini
