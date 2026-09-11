@@ -14,6 +14,7 @@ add_executable(InstantDisplay WIN32
     src/CaptureEngine.cpp
     src/D3DRenderer.cpp
     src/DeviceEnum.cpp
+    src/ScreenCapture.cpp
     src/App.cpp
     src/resource.rc
 )
@@ -36,6 +37,7 @@ target_link_libraries(InstantDisplay PRIVATE
     oleaut32
     shlwapi
     comdlg32
+    winmm
 )
 
 # Favor speed; keep debug info available for latency troubleshooting.

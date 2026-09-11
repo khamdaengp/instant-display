@@ -38,6 +38,7 @@ int App::Run(HINSTANCE hInstance, int nCmdShow) {
 
     m_running = false;
     if (m_renderThread.joinable()) m_renderThread.join();
+    m_screenCapture.Stop();
     m_capture.Stop();
 
     MFShutdown();
@@ -102,7 +103,28 @@ void App::BuildFormatMenu() {
 void App::OpenDevice(size_t index) {
     if (index >= m_devices.size()) return;
     m_capture.Stop();
+    m_screenCapture.Stop();
     m_deviceOpen = false;
+    m_isScreenCapture = false;
+
+    if (m_devices[index].isScreenCapture) {
+        m_formats.clear();
+        m_screenCapture.Start(m_devices[index].monitorIndex, 60);
+
+        FormatOption opt;
+        opt.width = m_screenCapture.GetWidth();
+        opt.height = m_screenCapture.GetHeight();
+        opt.fpsNumerator = 60;
+        opt.fpsDenominator = 1;
+        opt.format = PixelFormat::RGB32;
+        m_formats.push_back(opt);
+
+        BuildFormatMenu();
+        m_activeFormat = opt;
+        m_isScreenCapture = true;
+        m_deviceOpen = true;
+        return;
+    }
 
     m_formats.clear();
     HRESULT hr = m_capture.Open(m_devices[index].symbolicLink, &m_formats);
@@ -129,6 +151,10 @@ void App::OpenDevice(size_t index) {
 
 void App::SelectFormat(size_t index) {
     if (index >= m_formats.size()) return;
+    if (m_isScreenCapture) {
+        m_activeFormat = m_formats[index];
+        return;
+    }
     HRESULT hr = m_capture.StartStream(m_formats[index]);
     if (FAILED(hr)) {
         MessageBox(m_hwnd, L"Failed to start capture with selected format.", L"Error", MB_ICONERROR);
@@ -160,13 +186,18 @@ void App::ToggleFullscreen() {
 }
 
 void App::RenderThreadProc() {
-    // Tight poll loop: check for a new frame as often as possible without
-    // burning a full core needlessly. 1ms sleep keeps CPU sane while still
-    // responding well under one frame period (16.6ms @60fps) after a new
-    // sample lands.
     CapturedFrame frame;
     while (m_running) {
-        if (m_deviceOpen && m_capture.TryGetLatestFrame(frame)) {
+        bool gotFrame = false;
+        if (m_deviceOpen) {
+            if (m_isScreenCapture) {
+                gotFrame = m_screenCapture.TryGetLatestFrame(frame);
+            } else {
+                gotFrame = m_capture.TryGetLatestFrame(frame);
+            }
+        }
+
+        if (gotFrame) {
             frame.width = m_activeFormat.width;
             frame.height = m_activeFormat.height;
             m_renderer.RenderFrame(frame, m_activeFormat.width, m_activeFormat.height, m_keepAspect);

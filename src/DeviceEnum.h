@@ -18,6 +18,8 @@ using Microsoft::WRL::ComPtr;
 struct CaptureDeviceInfo {
     std::wstring friendlyName;
     std::wstring symbolicLink; // stable identifier used to re-activate the device
+    bool isScreenCapture = false;
+    int monitorIndex = 0;
 };
 
 // Enumerates all connected MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP devices.

@@ -16,6 +16,7 @@
 #include "CaptureEngine.h"
 #include "D3DRenderer.h"
 #include "DeviceEnum.h"
+#include "ScreenCapture.h"
 
 class App {
 public:
@@ -37,12 +38,14 @@ private:
     HINSTANCE m_hInstance = nullptr;
 
     CaptureEngine m_capture;
+    ScreenCapture m_screenCapture;
     D3DRenderer m_renderer;
 
     std::vector<CaptureDeviceInfo> m_devices;
     std::vector<FormatOption> m_formats;
     FormatOption m_activeFormat;
     bool m_deviceOpen = false;
+    bool m_isScreenCapture = false;
 
     std::thread m_renderThread;
     std::atomic<bool> m_running{false};

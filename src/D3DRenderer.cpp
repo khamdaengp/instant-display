@@ -73,6 +73,15 @@ float4 main(float4 pos : SV_POSITION, float2 uv : TEXCOORD0) : SV_TARGET {
 }
 )";
 
+const char* kPixelShaderRGBSrc = R"(
+Texture2D texRGBA : register(t0);
+SamplerState samp : register(s0);
+
+float4 main(float4 pos : SV_POSITION, float2 uv : TEXCOORD0) : SV_TARGET {
+    return texRGBA.Sample(samp, uv);
+}
+)";
+
 ComPtr<ID3DBlob> CompileShader(const char* src, const char* entry, const char* target) {
     ComPtr<ID3DBlob> blob, errBlob;
     UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
@@ -162,6 +171,7 @@ HRESULT D3DRenderer::CreateShaders() {
     auto vsBlob = CompileShader(kVertexShaderSrc, "main", "vs_4_0");
     auto psNV12Blob = CompileShader(kPixelShaderNV12Src, "main", "ps_4_0");
     auto psYUY2Blob = CompileShader(kPixelShaderYUY2Src, "main", "ps_4_0");
+    auto psRGBBlob = CompileShader(kPixelShaderRGBSrc, "main", "ps_4_0");
 
     HRESULT hr = m_device->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(),
                                                nullptr, &m_vsPassthrough);
@@ -171,6 +181,9 @@ HRESULT D3DRenderer::CreateShaders() {
     if (FAILED(hr)) return hr;
     hr = m_device->CreatePixelShader(psYUY2Blob->GetBufferPointer(), psYUY2Blob->GetBufferSize(),
                                       nullptr, &m_psYUY2);
+    if (FAILED(hr)) return hr;
+    hr = m_device->CreatePixelShader(psRGBBlob->GetBufferPointer(), psRGBBlob->GetBufferSize(),
+                                      nullptr, &m_psRGB);
     if (FAILED(hr)) return hr;
 
     D3D11_INPUT_ELEMENT_DESC layout[] = {
@@ -220,6 +233,7 @@ void D3DRenderer::UpdateVertexBufferForAspect(UINT frameW, UINT frameH) {
 
 void D3DRenderer::Resize(UINT width, UINT height) {
     if (!m_swapChain || width == 0 || height == 0) return;
+    std::lock_guard<std::mutex> lock(m_renderMutex);
     m_rtv.Reset();
     m_swapChain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0);
     ComPtr<ID3D11Texture2D> backbuffer;
@@ -231,11 +245,11 @@ void D3DRenderer::Resize(UINT width, UINT height) {
 
 HRESULT D3DRenderer::EnsureTextures(UINT width, UINT height, PixelFormat format) {
     if (width == m_texWidth && height == m_texHeight && format == m_texFormat &&
-        (m_texY || m_texPacked)) {
+        (m_texY || m_texPacked || m_texRGB)) {
         return S_OK; // already sized correctly
     }
-    m_texY.Reset(); m_texUV.Reset(); m_texPacked.Reset();
-    m_srvY.Reset(); m_srvUV.Reset(); m_srvPacked.Reset();
+    m_texY.Reset(); m_texUV.Reset(); m_texPacked.Reset(); m_texRGB.Reset();
+    m_srvY.Reset(); m_srvUV.Reset(); m_srvPacked.Reset(); m_srvRGB.Reset();
 
     D3D11_TEXTURE2D_DESC desc{};
     desc.Usage = D3D11_USAGE_DYNAMIC;
@@ -262,6 +276,11 @@ HRESULT D3DRenderer::EnsureTextures(UINT width, UINT height, PixelFormat format)
         hr = m_device->CreateTexture2D(&desc, nullptr, &m_texPacked);
         if (FAILED(hr)) return hr;
         m_device->CreateShaderResourceView(m_texPacked.Get(), nullptr, &m_srvPacked);
+    } else if (format == PixelFormat::RGB32) {
+        desc.Width = width; desc.Height = height; desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        hr = m_device->CreateTexture2D(&desc, nullptr, &m_texRGB);
+        if (FAILED(hr)) return hr;
+        m_device->CreateShaderResourceView(m_texRGB.Get(), nullptr, &m_srvRGB);
     } else {
         return E_NOTIMPL; // MJPEG frames should already be decoded to NV12/YUY2 upstream
     }
@@ -273,6 +292,7 @@ HRESULT D3DRenderer::EnsureTextures(UINT width, UINT height, PixelFormat format)
 void D3DRenderer::RenderFrame(const CapturedFrame& frame, UINT frameWidth, UINT frameHeight,
                                bool keepAspectRatio) {
     if (!m_device || frame.data.empty() || frameWidth == 0 || frameHeight == 0) return;
+    std::lock_guard<std::mutex> lock(m_renderMutex);
     m_keepAspect = keepAspectRatio;
 
     if (FAILED(EnsureTextures(frameWidth, frameHeight, frame.format))) return;
@@ -307,6 +327,16 @@ void D3DRenderer::RenderFrame(const CapturedFrame& frame, UINT frameWidth, UINT 
                 memcpy(dst + row * mapped.RowPitch, src + row * rowBytes, rowBytes);
             m_context->Unmap(m_texPacked.Get(), 0);
         }
+    } else if (frame.format == PixelFormat::RGB32) {
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        UINT rowBytes = frameWidth * 4;
+        if (SUCCEEDED(m_context->Map(m_texRGB.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+            const uint8_t* src = frame.data.data();
+            uint8_t* dst = (uint8_t*)mapped.pData;
+            for (UINT row = 0; row < frameHeight; ++row)
+                memcpy(dst + row * mapped.RowPitch, src + row * rowBytes, rowBytes);
+            m_context->Unmap(m_texRGB.Get(), 0);
+        }
     } else {
         return;
     }
@@ -330,17 +360,17 @@ void D3DRenderer::RenderFrame(const CapturedFrame& frame, UINT frameWidth, UINT 
         ID3D11ShaderResourceView* srvs[2] = {m_srvY.Get(), m_srvUV.Get()};
         m_context->PSSetShaderResources(0, 2, srvs);
         m_context->PSSetShader(m_psNV12.Get(), nullptr, 0);
-    } else {
+    } else if (frame.format == PixelFormat::YUY2) {
         ID3D11ShaderResourceView* srvs[1] = {m_srvPacked.Get()};
         m_context->PSSetShaderResources(0, 1, srvs);
         m_context->PSSetShader(m_psYUY2.Get(), nullptr, 0);
+    } else if (frame.format == PixelFormat::RGB32) {
+        ID3D11ShaderResourceView* srvs[1] = {m_srvRGB.Get()};
+        m_context->PSSetShaderResources(0, 1, srvs);
+        m_context->PSSetShader(m_psRGB.Get(), nullptr, 0);
     }
 
     m_context->Draw(6, 0);
 
-    // DO_NOT_WAIT: never block the render thread on a slow present; if the
-    // swapchain isn't ready we simply skip presenting this frame rather
-    // than stall (the next captured frame will supersede it anyway).
-    UINT presentFlags = kVsync ? 0 : DXGI_PRESENT_DO_NOT_WAIT;
-    m_swapChain->Present(kVsync ? 1 : 0, presentFlags);
+    m_swapChain->Present(kVsync ? 1 : 0, 0);
 }

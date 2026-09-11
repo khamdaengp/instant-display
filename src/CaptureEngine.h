@@ -41,7 +41,7 @@
 
 using Microsoft::WRL::ComPtr;
 
-enum class PixelFormat { NV12, YUY2, MJPEG, UNKNOWN };
+enum class PixelFormat { NV12, YUY2, MJPEG, RGB32, UNKNOWN };
 
 struct FormatOption {
     UINT32 width = 0;

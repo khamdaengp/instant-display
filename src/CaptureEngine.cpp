@@ -17,6 +17,7 @@ const wchar_t* FormatName(PixelFormat f) {
         case PixelFormat::NV12: return L"NV12";
         case PixelFormat::YUY2: return L"YUY2";
         case PixelFormat::MJPEG: return L"MJPEG";
+        case PixelFormat::RGB32: return L"RGB32";
         default: return L"UNKNOWN";
     }
 }

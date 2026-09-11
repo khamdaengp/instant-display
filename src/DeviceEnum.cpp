@@ -1,9 +1,21 @@
 #include "DeviceEnum.h"
+#include "ScreenCapture.h"
 #include <mfapi.h>
 #include <mfidl.h>
 
 std::vector<CaptureDeviceInfo> EnumerateCaptureDevices() {
     std::vector<CaptureDeviceInfo> result;
+
+    // First enumerate local screen monitors for live display capture
+    auto monitors = EnumerateMonitors();
+    for (const auto& m : monitors) {
+        CaptureDeviceInfo info;
+        info.friendlyName = L"[Monitor] " + m.name;
+        info.symbolicLink = L"monitor:" + std::to_wstring(m.index);
+        info.isScreenCapture = true;
+        info.monitorIndex = m.index;
+        result.push_back(std::move(info));
+    }
 
     ComPtr<IMFAttributes> attrs;
     HRESULT hr = MFCreateAttributes(&attrs, 1);

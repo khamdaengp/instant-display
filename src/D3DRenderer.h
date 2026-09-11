@@ -53,18 +53,20 @@ private:
     ComPtr<ID3D11VertexShader> m_vsPassthrough;
     ComPtr<ID3D11PixelShader> m_psNV12;
     ComPtr<ID3D11PixelShader> m_psYUY2;
+    ComPtr<ID3D11PixelShader> m_psRGB;
     ComPtr<ID3D11InputLayout> m_inputLayout;
     ComPtr<ID3D11Buffer> m_vertexBuffer;
     ComPtr<ID3D11SamplerState> m_sampler;
 
     // NV12 uses two textures (Y plane R8, UV plane R8G8); YUY2 uses one
-    // packed texture sampled as R8G8B8A8-ish (handled in-shader).
-    ComPtr<ID3D11Texture2D> m_texY, m_texUV, m_texPacked;
-    ComPtr<ID3D11ShaderResourceView> m_srvY, m_srvUV, m_srvPacked;
+    // packed texture sampled as R8G8B8A8-ish; RGB32 uses standard BGRA8 texture.
+    ComPtr<ID3D11Texture2D> m_texY, m_texUV, m_texPacked, m_texRGB;
+    ComPtr<ID3D11ShaderResourceView> m_srvY, m_srvUV, m_srvPacked, m_srvRGB;
 
     UINT m_texWidth = 0, m_texHeight = 0;
     PixelFormat m_texFormat = PixelFormat::UNKNOWN;
 
     UINT m_windowWidth = 0, m_windowHeight = 0;
     bool m_keepAspect = true;
+    std::mutex m_renderMutex;
 };
