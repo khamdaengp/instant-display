@@ -330,12 +330,14 @@ void D3DRenderer::RenderFrame(const CapturedFrame& frame, UINT frameWidth, UINT 
     } else if (frame.format == PixelFormat::RGB32) {
         D3D11_MAPPED_SUBRESOURCE mapped;
         UINT rowBytes = frameWidth * 4;
-        if (SUCCEEDED(m_context->Map(m_texRGB.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
-            const uint8_t* src = frame.data.data();
-            uint8_t* dst = (uint8_t*)mapped.pData;
-            for (UINT row = 0; row < frameHeight; ++row)
-                memcpy(dst + row * mapped.RowPitch, src + row * rowBytes, rowBytes);
-            m_context->Unmap(m_texRGB.Get(), 0);
+        if (frame.data.size() >= (size_t)rowBytes * frameHeight) {
+            if (SUCCEEDED(m_context->Map(m_texRGB.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+                const uint8_t* src = frame.data.data();
+                uint8_t* dst = (uint8_t*)mapped.pData;
+                for (UINT row = 0; row < frameHeight; ++row)
+                    memcpy(dst + row * mapped.RowPitch, src + row * rowBytes, rowBytes);
+                m_context->Unmap(m_texRGB.Get(), 0);
+            }
         }
     } else {
         return;

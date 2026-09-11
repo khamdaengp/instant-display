@@ -38,6 +38,7 @@ target_link_libraries(InstantDisplay PRIVATE
     shlwapi
     comdlg32
     winmm
+    windowscodecs
 )
 
 # Favor speed; keep debug info available for latency troubleshooting.

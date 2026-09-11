@@ -9,6 +9,7 @@ PixelFormat SubtypeToFormat(const GUID& g) {
     if (g == MFVideoFormat_NV12) return PixelFormat::NV12;
     if (g == MFVideoFormat_YUY2) return PixelFormat::YUY2;
     if (g == MFVideoFormat_MJPG) return PixelFormat::MJPEG;
+    if (g == MFVideoFormat_RGB32 || g == MFVideoFormat_ARGB32) return PixelFormat::RGB32;
     return PixelFormat::UNKNOWN;
 }
 
@@ -114,19 +115,88 @@ HRESULT CaptureEngine::Open(const std::wstring& symbolicLink, std::vector<Format
 }
 
 HRESULT CaptureEngine::StartStream(const FormatOption& fmt) {
-    if (!m_reader) return E_FAIL;
+    if (!m_source) return E_FAIL;
     m_streaming = false;
 
-    ComPtr<IMFMediaType> mt;
-    HRESULT hr = m_reader->GetNativeMediaType(fmt.streamIndex, fmt.mediaTypeIndex, &mt);
+    // 1. Flush and release any active reader so that no pending async reads interfere
+    if (m_reader) {
+        m_reader->Flush(MF_SOURCE_READER_ALL_STREAMS);
+        m_reader.Reset();
+    }
+
+    // 2. Re-create reader with appropriate attributes for the requested format
+    ComPtr<IMFAttributes> readerAttrs;
+    HRESULT hr = MFCreateAttributes(&readerAttrs, 4);
     if (FAILED(hr)) return hr;
 
-    hr = m_reader->SetCurrentMediaType(fmt.streamIndex, nullptr, mt.Get());
+    readerAttrs->SetUnknown(MF_SOURCE_READER_ASYNC_CALLBACK, static_cast<IMFSourceReaderCallback*>(this));
+    readerAttrs->SetUINT32(MF_SOURCE_READER_DISABLE_DXVA, FALSE);
+
+    if (fmt.format == PixelFormat::MJPEG) {
+        // Enable video processing and converters so Media Foundation can automatically
+        // decode MJPEG to RGB32/NV12 using its built-in MJPEG MFT decoder.
+        readerAttrs->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE);
+        readerAttrs->SetUINT32(MF_READWRITE_DISABLE_CONVERTERS, FALSE);
+    } else {
+        // Direct zero-latency pipeline for native uncompressed raw formats (NV12 / YUY2)
+        readerAttrs->SetUINT32(MF_READWRITE_DISABLE_CONVERTERS, TRUE);
+    }
+
+    hr = MFCreateSourceReaderFromMediaSource(m_source.Get(), readerAttrs.Get(), &m_reader);
     if (FAILED(hr)) return hr;
 
-    // Deselect every stream, then select only the one we're rendering, to
-    // stop MF from buffering samples on streams nobody is draining (e.g.
-    // an embedded audio stream on an HDMI capture card).
+    // 3. Set the capture media type
+    if (fmt.format == PixelFormat::MJPEG) {
+        // Set native type first so hardware camera/capture card runs at selected resolution & fps
+        ComPtr<IMFMediaType> nativeType;
+        hr = m_reader->GetNativeMediaType(fmt.streamIndex, fmt.mediaTypeIndex, &nativeType);
+        if (SUCCEEDED(hr)) {
+            m_reader->SetCurrentMediaType(fmt.streamIndex, nullptr, nativeType.Get());
+        }
+
+        // Request decoded RGB32 output from the reader
+        ComPtr<IMFMediaType> decodeType;
+        hr = MFCreateMediaType(&decodeType);
+        if (SUCCEEDED(hr)) {
+            decodeType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+            decodeType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
+            MFSetAttributeSize(decodeType.Get(), MF_MT_FRAME_SIZE, fmt.width, fmt.height);
+            MFSetAttributeRatio(decodeType.Get(), MF_MT_FRAME_RATE, fmt.fpsNumerator, fmt.fpsDenominator);
+
+            HRESULT hrDecode = m_reader->SetCurrentMediaType(fmt.streamIndex, nullptr, decodeType.Get());
+            if (FAILED(hrDecode)) {
+                // Fallback 1: try NV12
+                decodeType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_NV12);
+                hrDecode = m_reader->SetCurrentMediaType(fmt.streamIndex, nullptr, decodeType.Get());
+            }
+            if (FAILED(hrDecode)) {
+                // Fallback 2: try YUY2
+                decodeType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_YUY2);
+                hrDecode = m_reader->SetCurrentMediaType(fmt.streamIndex, nullptr, decodeType.Get());
+            }
+            // If all decoders fail to set on the reader, the reader will output native MJPEG,
+            // which will be seamlessly decoded by our fallback WIC decoder in OnReadSample.
+        }
+    } else {
+        ComPtr<IMFMediaType> mt;
+        hr = m_reader->GetNativeMediaType(fmt.streamIndex, fmt.mediaTypeIndex, &mt);
+        if (FAILED(hr)) return hr;
+
+        hr = m_reader->SetCurrentMediaType(fmt.streamIndex, nullptr, mt.Get());
+        if (FAILED(hr)) return hr;
+    }
+
+    // 4. Update m_activeFormat to the actual format the reader will output
+    ComPtr<IMFMediaType> currentType;
+    if (SUCCEEDED(m_reader->GetCurrentMediaType(fmt.streamIndex, &currentType))) {
+        GUID subtype{};
+        currentType->GetGUID(MF_MT_SUBTYPE, &subtype);
+        m_activeFormat = SubtypeToFormat(subtype);
+    } else {
+        m_activeFormat = fmt.format;
+    }
+
+    // 5. Select only the active stream
     DWORD si = 0;
     ComPtr<IMFMediaType> probe;
     while (SUCCEEDED(m_reader->GetNativeMediaType(si, 0, &probe))) {
@@ -136,7 +206,6 @@ HRESULT CaptureEngine::StartStream(const FormatOption& fmt) {
     }
     m_reader->SetStreamSelection(fmt.streamIndex, TRUE);
 
-    m_activeFormat = fmt.format;
     m_streaming = true;
     RequestNextFrame();
     return S_OK;
@@ -164,6 +233,47 @@ bool CaptureEngine::TryGetLatestFrame(CapturedFrame& out) {
     return true;
 }
 
+bool CaptureEngine::DecodeMJPEGWithWIC(const uint8_t* jpegData, DWORD jpegSize, std::vector<uint8_t>& outRgb) {
+    if (!m_wicFactory) {
+        HRESULT hrCo = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                                        IID_PPV_ARGS(&m_wicFactory));
+        if (FAILED(hrCo)) return false;
+    }
+
+    ComPtr<IWICStream> stream;
+    HRESULT hr = m_wicFactory->CreateStream(&stream);
+    if (FAILED(hr)) return false;
+
+    hr = stream->InitializeFromMemory(const_cast<BYTE*>(jpegData), jpegSize);
+    if (FAILED(hr)) return false;
+
+    ComPtr<IWICBitmapDecoder> decoder;
+    hr = m_wicFactory->CreateDecoderFromStream(stream.Get(), nullptr, WICDecodeMetadataCacheOnDemand, &decoder);
+    if (FAILED(hr)) return false;
+
+    ComPtr<IWICBitmapFrameDecode> frame;
+    hr = decoder->GetFrame(0, &frame);
+    if (FAILED(hr)) return false;
+
+    UINT width = 0, height = 0;
+    hr = frame->GetSize(&width, &height);
+    if (FAILED(hr) || width == 0 || height == 0) return false;
+
+    ComPtr<IWICFormatConverter> converter;
+    hr = m_wicFactory->CreateFormatConverter(&converter);
+    if (FAILED(hr)) return false;
+
+    hr = converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppBGRA,
+                               WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom);
+    if (FAILED(hr)) return false;
+
+    UINT stride = width * 4;
+    UINT bufferSize = stride * height;
+    outRgb.resize(bufferSize);
+    hr = converter->CopyPixels(nullptr, stride, bufferSize, outRgb.data());
+    return SUCCEEDED(hr);
+}
+
 STDMETHODIMP CaptureEngine::OnReadSample(HRESULT hrStatus, DWORD streamIndex, DWORD streamFlags,
                                           LONGLONG timestamp, IMFSample* sample) {
     (void)streamIndex; (void)timestamp;
@@ -179,6 +289,21 @@ STDMETHODIMP CaptureEngine::OnReadSample(HRESULT hrStatus, DWORD streamIndex, DW
             DWORD maxLen = 0, curLen = 0;
             if (SUCCEEDED(buffer->Lock(&data, &maxLen, &curLen))) {
                 LARGE_INTEGER qpc; QueryPerformanceCounter(&qpc);
+
+                // Fallback: If the incoming frame is raw compressed JPEG (starts with 0xFF 0xD8), decode via WIC
+                if (m_activeFormat == PixelFormat::MJPEG || (curLen >= 2 && data[0] == 0xFF && data[1] == 0xD8)) {
+                    std::vector<uint8_t> rgbData;
+                    if (DecodeMJPEGWithWIC(data, curLen, rgbData)) {
+                        std::lock_guard<std::mutex> lock(m_frameMutex);
+                        m_latestFrame.data = std::move(rgbData);
+                        m_latestFrame.format = PixelFormat::RGB32;
+                        m_latestFrame.captureQpc = (uint64_t)qpc.QuadPart;
+                        buffer->Unlock();
+                        m_hasNewFrame = true;
+                        RequestNextFrame();
+                        return S_OK;
+                    }
+                }
 
                 std::lock_guard<std::mutex> lock(m_frameMutex);
                 // Overwrite in place; this is the "latest frame wins" slot.
