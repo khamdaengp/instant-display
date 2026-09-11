@@ -9,7 +9,7 @@ constexpr UINT ID_FORMAT_BASE = 2000;
 constexpr UINT ID_TOGGLE_ASPECT = 3001;
 constexpr UINT ID_TOGGLE_VSYNC = 3002;
 constexpr UINT ID_TOGGLE_FULLSCREEN = 3003;
-const wchar_t* kClassName = L"LowLatencyCaptureWnd";
+const wchar_t* kClassName = L"InstantDisplayWnd";
 }
 
 int App::Run(HINSTANCE hInstance, int nCmdShow) {
@@ -69,7 +69,7 @@ void App::CreateMainWindow(HINSTANCE hInstance, int nCmdShow) {
     AppendMenu(viewMenu, MF_STRING, ID_TOGGLE_FULLSCREEN, L"Fullscreen\tF11");
     AppendMenu(m_menuBar, MF_POPUP, (UINT_PTR)viewMenu, L"View");
 
-    m_hwnd = CreateWindowEx(0, kClassName, L"Low-Latency Capture", WS_OVERLAPPEDWINDOW,
+    m_hwnd = CreateWindowEx(0, kClassName, L"InstantDisplay", WS_OVERLAPPEDWINDOW,
                              CW_USEDEFAULT, CW_USEDEFAULT, 1280, 720,
                              nullptr, m_menuBar, hInstance, this);
     SetWindowLongPtr(m_hwnd, GWLP_USERDATA, (LONG_PTR)this);

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(LowLatencyCapture CXX)
+project(InstantDisplay CXX)
 
 if (NOT WIN32)
     message(FATAL_ERROR "This project targets Windows 10/11 (Media Foundation + Direct3D11). "
@@ -9,7 +9,7 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_executable(LowLatencyCapture WIN32
+add_executable(InstantDisplay WIN32
     src/main.cpp
     src/CaptureEngine.cpp
     src/D3DRenderer.cpp
@@ -18,11 +18,11 @@ add_executable(LowLatencyCapture WIN32
     src/resource.rc
 )
 
-target_include_directories(LowLatencyCapture PRIVATE src)
+target_include_directories(InstantDisplay PRIVATE src)
 
 # Core Windows media / graphics libs. All ship with the Windows SDK -
 # no external dependencies to fetch or vendor.
-target_link_libraries(LowLatencyCapture PRIVATE
+target_link_libraries(InstantDisplay PRIVATE
     mfplat
     mfreadwrite
     mfuuid
@@ -39,5 +39,5 @@ target_link_libraries(LowLatencyCapture PRIVATE
 )
 
 # Favor speed; keep debug info available for latency troubleshooting.
-target_compile_options(LowLatencyCapture PRIVATE $<$<CONFIG:Release>:/O2>)
-target_compile_definitions(LowLatencyCapture PRIVATE UNICODE _UNICODE)
+target_compile_options(InstantDisplay PRIVATE $<$<CONFIG:Release>:/O2>)
+target_compile_definitions(InstantDisplay PRIVATE UNICODE _UNICODE)

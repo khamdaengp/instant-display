@@ -1,6 +1,6 @@
-# Low-Latency Capture
+# InstantDisplay
 
-A minimal Windows desktop app that reads a UVC/DirectShow capture card via
+A minimal, ultra-low-latency Windows desktop app that reads a UVC/DirectShow capture card via
 **Media Foundation** and renders it with **Direct3D 11**, built specifically
 to minimize the delay between "frame leaves the capture card" and "frame is
 on screen."
@@ -60,7 +60,7 @@ cmake .. -G "Visual Studio 17 2022" -A x64
 cmake --build . --config Release
 ```
 
-The executable will be at `build/Release/LowLatencyCapture.exe`.
+The executable will be at `build/Release/InstantDisplay.exe`.
 
 ### Steps (CLI only, no full Visual Studio)
 
