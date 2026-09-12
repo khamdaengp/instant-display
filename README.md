@@ -37,6 +37,12 @@ You can download and run the standalone portable executable immediately:
 | **Exit Fullscreen** | `Esc` |
 | **Keep Aspect Ratio** | `A` or menu `View -> Keep Aspect Ratio` |
 | **Toggle VSync** | `V` or menu `View -> VSync` *(VSync OFF = lowest latency)* |
+| **Mirror / Flip Horizontal** | `M` or menu `Color -> Mirror Horizontal` |
+| **Toggle Color Range** | `C` or menu `Color -> Limited Range / Full Range` |
+| **Adjust Brightness** | `Ctrl + Up` (+5%) / `Ctrl + Down` (-5%) |
+| **Adjust Contrast** | `Ctrl + Right` (+10%) / `Ctrl + Left` (-10%) |
+| **Adjust Saturation** | `Alt + Right` (+10%) / `Alt + Left` (-10%) |
+| **Reset Colors** | `R` or menu `Color -> Reset Colors to Default` |
 | **Select Capture Device** | `Device` menu |
 | **Select Resolution / FPS / Format** | `Format` menu |
 | **About & Info** | `Help -> About InstantDisplay v1.1.0` |

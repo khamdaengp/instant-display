@@ -22,6 +22,13 @@
 
 using Microsoft::WRL::ComPtr;
 
+struct ColorParams {
+    float brightness = 0.0f; // -0.5 to +0.5 (default 0.0)
+    float contrast = 1.0f;   // 0.2 to 2.0 (default 1.0)
+    float saturation = 1.0f; // 0.0 to 2.0 (default 1.0)
+    int colorRange = 0;      // 0 = Limited (16-235), 1 = Full (0-255)
+};
+
 class D3DRenderer {
 public:
     bool kVsync = false; // off by default: lowest latency, may tear
@@ -37,6 +44,15 @@ public:
                       bool keepAspectRatio);
 
     void SetKeepAspect(bool keep) { m_keepAspect = keep; }
+
+    void SetColorRange(int range);
+    void AdjustBrightness(float delta);
+    void AdjustContrast(float delta);
+    void AdjustSaturation(float delta);
+    void ResetColorParams();
+    void ToggleMirror();
+    const ColorParams& GetColorParams() const { return m_colorParams; }
+    bool IsMirrored() const { return m_mirrorHorizontal; }
 
 private:
     HRESULT CreateDeviceAndSwapChain(HWND hwnd);
@@ -56,6 +72,7 @@ private:
     ComPtr<ID3D11PixelShader> m_psRGB;
     ComPtr<ID3D11InputLayout> m_inputLayout;
     ComPtr<ID3D11Buffer> m_vertexBuffer;
+    ComPtr<ID3D11Buffer> m_cbColor;
     ComPtr<ID3D11SamplerState> m_sampler;
 
     // NV12 uses two textures (Y plane R8, UV plane R8G8); YUY2 uses one
@@ -68,5 +85,8 @@ private:
 
     UINT m_windowWidth = 0, m_windowHeight = 0;
     bool m_keepAspect = true;
+    bool m_mirrorHorizontal = false;
+    ColorParams m_colorParams;
+    bool m_colorDirty = true;
     std::mutex m_renderMutex;
 };

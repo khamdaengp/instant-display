@@ -34,6 +34,8 @@ private:
     void ToggleFullscreen();
     void RenderThreadProc();
 
+    void UpdateColorMenu();
+
     HWND m_hwnd = nullptr;
     HINSTANCE m_hInstance = nullptr;
 
@@ -58,4 +60,5 @@ private:
     HMENU m_menuBar = nullptr;
     HMENU m_deviceMenu = nullptr;
     HMENU m_formatMenu = nullptr;
+    HMENU m_colorMenu = nullptr;
 };

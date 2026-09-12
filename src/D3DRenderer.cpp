@@ -1,5 +1,6 @@
 #include "D3DRenderer.h"
 #include <d3dcompiler.h>
+#include <algorithm>
 #include <stdexcept>
 
 namespace {
@@ -21,20 +22,39 @@ VSOut main(VSIn input) {
 )";
 
 // NV12: Y plane (full res, R8) + interleaved UV plane (half res, R8G8).
-// BT.601 limited-range conversion (typical for USB/UVC capture devices).
 const char* kPixelShaderNV12Src = R"(
 Texture2D texY : register(t0);
 Texture2D texUV : register(t1);
 SamplerState samp : register(s0);
 
+cbuffer ColorBuffer : register(b0) {
+    float cb_brightness;
+    float cb_contrast;
+    float cb_saturation;
+    int   cb_colorRange; // 0 = Limited (16-235), 1 = Full (0-255)
+};
+
+float3 ApplyAdjustments(float3 rgb) {
+    rgb = (rgb - 0.5) * cb_contrast + 0.5;
+    rgb += cb_brightness;
+    float luma = dot(rgb, float3(0.299, 0.587, 0.114));
+    rgb = lerp(float3(luma, luma, luma), rgb, cb_saturation);
+    return saturate(rgb);
+}
+
 float3 YuvToRgb(float y, float u, float v) {
-    y = (y - 16.0/255.0) * (255.0/219.0);
-    u = (u - 128.0/255.0) * (255.0/224.0);
-    v = (v - 128.0/255.0) * (255.0/224.0);
+    if (cb_colorRange == 0) {
+        y = (y - 16.0/255.0) * (255.0/219.0);
+        u = (u - 128.0/255.0) * (255.0/224.0);
+        v = (v - 128.0/255.0) * (255.0/224.0);
+    } else {
+        u = u - 128.0/255.0;
+        v = v - 128.0/255.0;
+    }
     float r = y + 1.402 * v;
     float g = y - 0.344136 * u - 0.714136 * v;
     float b = y + 1.772 * u;
-    return saturate(float3(r, g, b));
+    return ApplyAdjustments(saturate(float3(r, g, b)));
 }
 
 float4 main(float4 pos : SV_POSITION, float2 uv : TEXCOORD0) : SV_TARGET {
@@ -51,20 +71,38 @@ const char* kPixelShaderYUY2Src = R"(
 Texture2D texPacked : register(t0);
 SamplerState samp : register(s0);
 
+cbuffer ColorBuffer : register(b0) {
+    float cb_brightness;
+    float cb_contrast;
+    float cb_saturation;
+    int   cb_colorRange; // 0 = Limited, 1 = Full
+};
+
+float3 ApplyAdjustments(float3 rgb) {
+    rgb = (rgb - 0.5) * cb_contrast + 0.5;
+    rgb += cb_brightness;
+    float luma = dot(rgb, float3(0.299, 0.587, 0.114));
+    rgb = lerp(float3(luma, luma, luma), rgb, cb_saturation);
+    return saturate(rgb);
+}
+
 float3 YuvToRgb(float y, float u, float v) {
-    y = (y - 16.0/255.0) * (255.0/219.0);
-    u = (u - 128.0/255.0) * (255.0/224.0);
-    v = (v - 128.0/255.0) * (255.0/224.0);
+    if (cb_colorRange == 0) {
+        y = (y - 16.0/255.0) * (255.0/219.0);
+        u = (u - 128.0/255.0) * (255.0/224.0);
+        v = (v - 128.0/255.0) * (255.0/224.0);
+    } else {
+        u = u - 128.0/255.0;
+        v = v - 128.0/255.0;
+    }
     float r = y + 1.402 * v;
     float g = y - 0.344136 * u - 0.714136 * v;
     float b = y + 1.772 * u;
-    return saturate(float3(r, g, b));
+    return ApplyAdjustments(saturate(float3(r, g, b)));
 }
 
 float4 main(float4 pos : SV_POSITION, float2 uv : TEXCOORD0) : SV_TARGET {
     float4 texel = texPacked.Sample(samp, uv); // texel = (Y0,U,Y1,V) as RGBA8
-    // pos.x is the destination pixel's screen coordinate; use its fractional
-    // parity against the source macropixel to pick Y0 vs Y1.
     bool evenPixel = (fmod(floor(pos.x), 2.0) < 1.0);
     float y = evenPixel ? texel.r : texel.b;
     float u = texel.g;
@@ -77,8 +115,24 @@ const char* kPixelShaderRGBSrc = R"(
 Texture2D texRGBA : register(t0);
 SamplerState samp : register(s0);
 
+cbuffer ColorBuffer : register(b0) {
+    float cb_brightness;
+    float cb_contrast;
+    float cb_saturation;
+    int   cb_colorRange; // 0 = Limited, 1 = Full
+};
+
+float3 ApplyAdjustments(float3 rgb) {
+    rgb = (rgb - 0.5) * cb_contrast + 0.5;
+    rgb += cb_brightness;
+    float luma = dot(rgb, float3(0.299, 0.587, 0.114));
+    rgb = lerp(float3(luma, luma, luma), rgb, cb_saturation);
+    return saturate(rgb);
+}
+
 float4 main(float4 pos : SV_POSITION, float2 uv : TEXCOORD0) : SV_TARGET {
-    return texRGBA.Sample(samp, uv);
+    float4 col = texRGBA.Sample(samp, uv);
+    return float4(ApplyAdjustments(col.rgb), col.a);
 }
 )";
 
@@ -204,7 +258,16 @@ HRESULT D3DRenderer::CreateShaders() {
     vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
     vbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     D3D11_SUBRESOURCE_DATA init{quad, 0, 0};
-    return m_device->CreateBuffer(&vbDesc, &init, &m_vertexBuffer);
+    hr = m_device->CreateBuffer(&vbDesc, &init, &m_vertexBuffer);
+    if (FAILED(hr)) return hr;
+
+    D3D11_BUFFER_DESC cbDesc{};
+    cbDesc.Usage = D3D11_USAGE_DYNAMIC;
+    cbDesc.ByteWidth = sizeof(ColorParams);
+    cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    D3D11_SUBRESOURCE_DATA cbInit{&m_colorParams, 0, 0};
+    return m_device->CreateBuffer(&cbDesc, &cbInit, &m_cbColor);
 }
 
 void D3DRenderer::UpdateVertexBufferForAspect(UINT frameW, UINT frameH) {
@@ -220,9 +283,11 @@ void D3DRenderer::UpdateVertexBufferForAspect(UINT frameW, UINT frameH) {
             x0 = -scale; x1 = scale;
         }
     }
+    float u0 = m_mirrorHorizontal ? 1.0f : 0.0f;
+    float u1 = m_mirrorHorizontal ? 0.0f : 1.0f;
     Vertex quad[6] = {
-        {x0, y0, 0, 1}, {x0, y1, 0, 0}, {x1, y0, 1, 1},
-        {x1, y0, 1, 1}, {x0, y1, 0, 0}, {x1, y1, 1, 0},
+        {x0, y0, u0, 1}, {x0, y1, u0, 0}, {x1, y0, u1, 1},
+        {x1, y0, u1, 1}, {x0, y1, u0, 0}, {x1, y1, u1, 0},
     };
     D3D11_MAPPED_SUBRESOURCE mapped;
     if (SUCCEEDED(m_context->Map(m_vertexBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
@@ -358,6 +423,16 @@ void D3DRenderer::RenderFrame(const CapturedFrame& frame, UINT frameWidth, UINT 
     m_context->VSSetShader(m_vsPassthrough.Get(), nullptr, 0);
     m_context->PSSetSamplers(0, 1, m_sampler.GetAddressOf());
 
+    if (m_colorDirty && m_cbColor) {
+        D3D11_MAPPED_SUBRESOURCE cbMapped;
+        if (SUCCEEDED(m_context->Map(m_cbColor.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &cbMapped))) {
+            memcpy(cbMapped.pData, &m_colorParams, sizeof(ColorParams));
+            m_context->Unmap(m_cbColor.Get(), 0);
+            m_colorDirty = false;
+        }
+    }
+    m_context->PSSetConstantBuffers(0, 1, m_cbColor.GetAddressOf());
+
     if (frame.format == PixelFormat::NV12) {
         ID3D11ShaderResourceView* srvs[2] = {m_srvY.Get(), m_srvUV.Get()};
         m_context->PSSetShaderResources(0, 2, srvs);
@@ -375,4 +450,41 @@ void D3DRenderer::RenderFrame(const CapturedFrame& frame, UINT frameWidth, UINT 
     m_context->Draw(6, 0);
 
     m_swapChain->Present(kVsync ? 1 : 0, 0);
+}
+
+void D3DRenderer::SetColorRange(int range) {
+    std::lock_guard<std::mutex> lock(m_renderMutex);
+    m_colorParams.colorRange = range;
+    m_colorDirty = true;
+}
+
+void D3DRenderer::AdjustBrightness(float delta) {
+    std::lock_guard<std::mutex> lock(m_renderMutex);
+    m_colorParams.brightness = std::clamp(m_colorParams.brightness + delta, -0.5f, 0.5f);
+    m_colorDirty = true;
+}
+
+void D3DRenderer::AdjustContrast(float delta) {
+    std::lock_guard<std::mutex> lock(m_renderMutex);
+    m_colorParams.contrast = std::clamp(m_colorParams.contrast + delta, 0.2f, 2.0f);
+    m_colorDirty = true;
+}
+
+void D3DRenderer::AdjustSaturation(float delta) {
+    std::lock_guard<std::mutex> lock(m_renderMutex);
+    m_colorParams.saturation = std::clamp(m_colorParams.saturation + delta, 0.0f, 2.0f);
+    m_colorDirty = true;
+}
+
+void D3DRenderer::ResetColorParams() {
+    std::lock_guard<std::mutex> lock(m_renderMutex);
+    m_colorParams.brightness = 0.0f;
+    m_colorParams.contrast = 1.0f;
+    m_colorParams.saturation = 1.0f;
+    m_colorDirty = true;
+}
+
+void D3DRenderer::ToggleMirror() {
+    std::lock_guard<std::mutex> lock(m_renderMutex);
+    m_mirrorHorizontal = !m_mirrorHorizontal;
 }
