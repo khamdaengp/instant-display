@@ -21,7 +21,7 @@ add_executable(InstantDisplay WIN32
 
 target_include_directories(InstantDisplay PRIVATE src)
 
-set_target_properties(InstantDisplay PROPERTIES OUTPUT_NAME "InstantDisplay 1.1.0")
+set_target_properties(InstantDisplay PROPERTIES OUTPUT_NAME "InstantDisplay 1.2.0")
 
 add_custom_command(TARGET InstantDisplay POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different

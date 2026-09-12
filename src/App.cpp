@@ -100,10 +100,10 @@ void App::CreateMainWindow(HINSTANCE hInstance, int nCmdShow) {
     AppendMenu(m_menuBar, MF_POPUP, (UINT_PTR)m_colorMenu, L"Color");
 
     HMENU helpMenu = CreatePopupMenu();
-    AppendMenu(helpMenu, MF_STRING, ID_ABOUT, L"About InstantDisplay v1.1.0");
+    AppendMenu(helpMenu, MF_STRING, ID_ABOUT, L"About InstantDisplay v1.2.0");
     AppendMenu(m_menuBar, MF_POPUP, (UINT_PTR)helpMenu, L"Help");
 
-    m_hwnd = CreateWindowEx(0, kClassName, L"InstantDisplay v1.1.0", WS_OVERLAPPEDWINDOW,
+    m_hwnd = CreateWindowEx(0, kClassName, L"InstantDisplay v1.2.0", WS_OVERLAPPEDWINDOW,
                              CW_USEDEFAULT, CW_USEDEFAULT, 1280, 720,
                              nullptr, m_menuBar, hInstance, this);
     SetWindowLongPtr(m_hwnd, GWLP_USERDATA, (LONG_PTR)this);
@@ -124,7 +124,7 @@ void App::UpdateColorMenu() {
     CheckMenuItem(m_colorMenu, ID_MIRROR_FLIP, m_renderer.IsMirrored() ? MF_CHECKED : MF_UNCHECKED);
 
     std::wstringstream ss;
-    ss << L"InstantDisplay v1.1.0";
+    ss << L"InstantDisplay v1.2.0";
     if (m_deviceOpen) {
         ss << L" - " << m_activeFormat.Describe();
     }
@@ -376,11 +376,11 @@ LRESULT App::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 UpdateColorMenu();
             } else if (id == ID_ABOUT) {
                 MessageBox(hwnd,
-                    L"InstantDisplay v1.1.0\n\n"
+                    L"InstantDisplay v1.2.0\n\n"
                     L"Ultra-Low Latency Video Capture & Display\n"
                     L"Direct3D 11 & Media Foundation\n\n"
                     L"GitHub: https://github.com/khamdaengp/instant-display",
-                    L"About InstantDisplay v1.1.0", MB_ICONINFORMATION);
+                    L"About InstantDisplay v1.2.0", MB_ICONINFORMATION);
             }
             return 0;
         }

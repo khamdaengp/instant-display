@@ -1,4 +1,4 @@
-# InstantDisplay (v1.1.0)
+# InstantDisplay (v1.2.0)
 
 A lightweight, ultra-low-latency Windows desktop application for HDMI capture cards, webcams, and real-time desktop monitor capture. Built with **Windows Media Foundation** and **Direct3D 11** to minimize the delay between "frame arrives at the capture device" and "frame is displayed on screen."
 
@@ -10,8 +10,8 @@ You can download and run the standalone portable executable immediately:
 
 | Version | File | Direct Download |
 |---|---|---|
-| **v1.1.0 (Latest)** | `InstantDisplay 1.1.0.exe` | [⬇️ Download InstantDisplay 1.1.0.exe](https://github.com/khamdaengp/instant-display/raw/main/Release/InstantDisplay%201.1.0.exe) |
-| **v1.1.0 (Standard)** | `InstantDisplay.exe` | [⬇️ Download InstantDisplay.exe](https://github.com/khamdaengp/instant-display/raw/main/Release/InstantDisplay.exe) |
+| **v1.2.0 (Latest)** | `InstantDisplay 1.2.0.exe` | [⬇️ Download InstantDisplay 1.2.0.exe](https://github.com/khamdaengp/instant-display/raw/main/Release/InstantDisplay%201.2.0.exe) |
+| **v1.2.0 (Standard)** | `InstantDisplay.exe` | [⬇️ Download InstantDisplay.exe](https://github.com/khamdaengp/instant-display/raw/main/Release/InstantDisplay.exe) |
 
 *Also available directly in the [`Release/`](./Release) folder of this repository.*
 
@@ -21,6 +21,7 @@ You can download and run the standalone portable executable immediately:
 
 - **Ultra-Low Latency Direct-to-GPU Pipeline:** Direct3D 11 flip-model presentation (`DXGI_SWAP_EFFECT_FLIP_DISCARD`) capped at a single frame latency (`SetMaximumFrameLatency(1)`).
 - **Zero-Buffer Architecture:** Single-slot "latest frame wins" mechanism with asynchronous re-arming. No frame queuing, no internal software delays.
+- **Color Range & GPU Image Controls (New in v1.2.0):** Full Range (0-255) vs Limited Range (16-235), Brightness, Contrast, Saturation, and Horizontal Mirror/Flip via GPU pixel shaders with 0ms added latency.
 - **MJPEG 1080p @ 60fps Support:** Clean Media Foundation hardware MFT decoding and fail-safe WIC (Windows Imaging Component) decoding for budget USB 2.0 / USB 3.0 HDMI capture cards (e.g. Cam Link clones, MacroSilicon MS2109).
 - **Desktop Monitor Capture:** Real-time desktop capture with hardware mouse cursor rendering at smooth 60fps.
 - **Native Raw YUV Formats:** Direct GPU pixel shader color conversion for NV12 and YUY2 with 0ms CPU overhead.
@@ -45,7 +46,7 @@ You can download and run the standalone portable executable immediately:
 | **Reset Colors** | `R` or menu `Color -> Reset Colors to Default` |
 | **Select Capture Device** | `Device` menu |
 | **Select Resolution / FPS / Format** | `Format` menu |
-| **About & Info** | `Help -> About InstantDisplay v1.1.0` |
+| **About & Info** | `Help -> About InstantDisplay v1.2.0` |
 
 ---
 
@@ -70,7 +71,7 @@ cmake --build build --config Release
 ```
 
 The output executables will be generated in `build\Release\`:
-- `build\Release\InstantDisplay 1.1.0.exe`
+- `build\Release\InstantDisplay 1.2.0.exe`
 - `build\Release\InstantDisplay.exe`
 
 ---
